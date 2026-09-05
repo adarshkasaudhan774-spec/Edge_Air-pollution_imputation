@@ -1,9 +1,8 @@
-/*
-*.pyc
 __pycache__/
+*.pyc
 
-.venv/
 venv/
+.venv/
 
 .ipynb_checkpoints/
 
@@ -17,4 +16,3 @@ data/processed/
 .env
 
 .vscode/
-*/
