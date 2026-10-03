@@ -224,67 +224,38 @@ def prepare_tensors(
     print("STEP 7.3 — Tensor Preparation")
     print("=" * 60)
 
-    timestamps = sorted(
-        merged["timestamp"].unique()
-    )
-
-    stations = sorted(
-        merged["station_id"].unique()
-    )
-
-    num_timestamps = len(timestamps)
-    num_stations = len(stations)
+    num_stations = merged["station_id"].nunique()
     num_features = len(FEATURE_COLUMNS)
 
-    print("Timestamps:", num_timestamps)
-    print("Stations:", num_stations)
-    print("Features:", num_features)
-
-    timestamp_to_index = {
-        timestamp: index
-        for index, timestamp in enumerate(timestamps)
-    }
-
-    station_to_index = {
-        station: index
-        for index, station in enumerate(stations)
-    }
-
-    data_tensor = np.full(
-        (
-            num_timestamps,
-            num_stations,
-            num_features
-        ),
-        np.nan,
-        dtype=np.float32
+    print(
+        "Stations:",
+        num_stations
     )
 
-    for row in merged.itertuples():
-
-        t = timestamp_to_index[row.timestamp]
-        s = station_to_index[row.station_id]
-
-        for f, feature in enumerate(FEATURE_COLUMNS):
-
-            data_tensor[t, s, f] = getattr(
-                row,
-                feature
-            )
-
-    mask_values = mask[
-        FEATURE_COLUMNS
-    ].to_numpy(
-        dtype=np.int8
-    )
-
-    mask_tensor = mask_values.reshape(
-        num_timestamps,
-        num_stations,
+    print(
+        "Features:",
         num_features
     )
 
-    original_observation_mask = (
+    data_array = (
+        merged[
+            FEATURE_COLUMNS
+        ]
+        .to_numpy(
+            dtype=np.float32
+        )
+    )
+
+    mask_array = (
+        mask[
+            FEATURE_COLUMNS
+        ]
+        .to_numpy(
+            dtype=np.int8
+        )
+    )
+
+    original_observation_mask_array = (
         merged[
             FEATURE_COLUMNS
         ]
@@ -294,11 +265,37 @@ def prepare_tensors(
         )
     )
 
+    data_tensor = data_array.reshape(
+        num_stations,
+        -1,
+        num_features
+    ).transpose(
+        1,
+        0,
+        2
+    )
+
+    mask_tensor = mask_array.reshape(
+        num_stations,
+        -1,
+        num_features
+    ).transpose(
+        1,
+        0,
+        2
+    )
+
     original_observation_mask_tensor = (
-        original_observation_mask.reshape(
-            num_timestamps,
+        original_observation_mask_array
+        .reshape(
             num_stations,
+            -1,
             num_features
+        )
+        .transpose(
+            1,
+            0,
+            2
         )
     )
 
