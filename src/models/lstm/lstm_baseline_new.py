@@ -8,44 +8,24 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-
-# --------------------------------------------------
 # Project Root
-# --------------------------------------------------
-
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
-
-# --------------------------------------------------
 # Data Paths
-# --------------------------------------------------
-
 RAW_DATA = PROJECT_ROOT / "Data" / "raw data"
 PROCESSED_DATA = PROJECT_ROOT / "Data" / "processed"
 MODELS_DIR = PROJECT_ROOT / "Models"
 RESULTS_DIR = PROJECT_ROOT / "Results"
 
-
-# --------------------------------------------------
 # Dataset Files
-# --------------------------------------------------
-
 AIR_FILE = RAW_DATA / "air_quality_2019_2021_hourly.csv"
 MET_FILE = RAW_DATA / "hourly_meteorology_16stations_2019_2021.csv"
 MASK_FILE = PROCESSED_DATA / "fixed_artificial_mask_new.csv"
 
-
-# --------------------------------------------------
 # Model Save Path
-# --------------------------------------------------
-
 MODEL_FILE = MODELS_DIR / "lstm_baseline_new.pth"
 
-
-# --------------------------------------------------
 # Basic Configuration
-# --------------------------------------------------
-
 NUM_STATIONS = 16
 NUM_FEATURES = 13
 INPUT_SIZE = NUM_STATIONS * NUM_FEATURES
