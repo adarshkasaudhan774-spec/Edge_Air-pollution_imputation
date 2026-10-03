@@ -214,7 +214,6 @@ def load_dataset():
 
     return merged, mask
 
-
 def prepare_tensors(
     merged,
     mask
@@ -285,11 +284,44 @@ def prepare_tensors(
         num_features
     )
 
-    print("Data tensor shape:", data_tensor.shape)
-    print("Mask tensor shape:", mask_tensor.shape)
+    original_observation_mask = (
+        merged[
+            FEATURE_COLUMNS
+        ]
+        .notna()
+        .to_numpy(
+            dtype=np.int8
+        )
+    )
 
-    return data_tensor, mask_tensor
+    original_observation_mask_tensor = (
+        original_observation_mask.reshape(
+            num_timestamps,
+            num_stations,
+            num_features
+        )
+    )
 
+    print(
+        "Data tensor shape:",
+        data_tensor.shape
+    )
+
+    print(
+        "Mask tensor shape:",
+        mask_tensor.shape
+    )
+
+    print(
+        "Original observation mask shape:",
+        original_observation_mask_tensor.shape
+    )
+
+    return (
+        data_tensor,
+        mask_tensor,
+        original_observation_mask_tensor
+    )
 
 def handle_missing_values(
     data_tensor
@@ -348,11 +380,10 @@ def handle_missing_values(
         feature_means,
         feature_stds
     )
-
-
 def create_windows(
     data,
-    mask
+    mask,
+    original_observation_mask
 ):
 
     print()
@@ -360,11 +391,9 @@ def create_windows(
     print("STEP 7.5 — Sliding Window Preparation")
     print("=" * 60)
 
-    num_windows = (
-        len(data) - WINDOW_SIZE
-    )
+    num_windows = len(data) - WINDOW_SIZE + 1
 
-    X = np.zeros(
+    X = np.empty(
         (
             num_windows,
             WINDOW_SIZE,
@@ -374,7 +403,7 @@ def create_windows(
         dtype=np.float32
     )
 
-    Y = np.zeros(
+    Y = np.empty(
         (
             num_windows,
             data.shape[1],
@@ -383,7 +412,7 @@ def create_windows(
         dtype=np.float32
     )
 
-    target_mask = np.zeros(
+    artificial_target_windows = np.empty(
         (
             num_windows,
             data.shape[1],
@@ -399,21 +428,36 @@ def create_windows(
         ]
 
         Y[i] = data[
-            i + WINDOW_SIZE
+            i + WINDOW_SIZE - 1
         ]
 
-        target_mask[i] = (
-            mask[
-                i + WINDOW_SIZE
+        artificial_target_windows[i] = (
+            original_observation_mask[
+                i + WINDOW_SIZE - 1
             ] == 1
+        ) & (
+            mask[
+                i + WINDOW_SIZE - 1
+            ] == 0
         )
 
     print("X shape:", X.shape)
     print("Y shape:", Y.shape)
-    print("Target mask shape:", target_mask.shape)
+    print(
+        "Artificial target mask shape:",
+        artificial_target_windows.shape
+    )
 
-    return X, Y, target_mask
+    print(
+        "Artificial target points:",
+        int(artificial_target_windows.sum())
+    )
 
+    return (
+        X,
+        Y,
+        artificial_target_windows
+    )
 
 def evaluate_model(
     model,
@@ -550,15 +594,17 @@ def evaluate_model(
     print(RESULTS_PATH)
 
     return results_df
-
-
 def main():
 
     model = load_model()
 
     merged, mask = load_dataset()
 
-    data_tensor, mask_tensor = prepare_tensors(
+    (
+        data_tensor,
+        mask_tensor,
+        original_observation_mask
+    ) = prepare_tensors(
         merged,
         mask
     )
@@ -571,9 +617,14 @@ def main():
         data_tensor
     )
 
-    X, Y, target_mask = create_windows(
+    (
+        X,
+        Y,
+        target_mask
+    ) = create_windows(
         normalized_data,
-        mask_tensor
+        mask_tensor,
+        original_observation_mask
     )
 
     total_windows = len(X)
@@ -599,7 +650,23 @@ def main():
     ]
 
     print()
-    print("Test windows:", X_test.shape[0])
+    print("Total windows:", total_windows)
+
+    print(
+        "Train windows:",
+        train_end
+    )
+
+    print(
+        "Validation windows:",
+        val_end - train_end
+    )
+
+    print(
+        "Test windows:",
+        X_test.shape[0]
+    )
+
     print(
         "Artificial test targets:",
         int(target_mask_test.sum())
