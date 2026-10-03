@@ -183,10 +183,6 @@ def load_dataset():
         meteorology["timestamp"]
     )
 
-    mask["timestamp"] = pd.to_datetime(
-        mask["timestamp"]
-    )
-
     merged = pd.merge(
         air_quality,
         meteorology,
@@ -204,13 +200,14 @@ def load_dataset():
         ["timestamp", "station_id"]
     ).reset_index(drop=True)
 
-    mask = mask.sort_values(
-        ["timestamp", "station_id"]
-    ).reset_index(drop=True)
-
     if len(merged) != len(mask):
         raise ValueError(
             "Merged dataset and mask row counts do not match."
+        )
+
+    if list(mask.columns) != FEATURE_COLUMNS:
+        raise ValueError(
+            "Mask columns do not match FEATURE_COLUMNS."
         )
 
     print("Dataset and mask aligned successfully.")
@@ -264,37 +261,29 @@ def prepare_tensors(
         dtype=np.float32
     )
 
-    mask_tensor = np.zeros(
-        (
-            num_timestamps,
-            num_stations,
-            num_features
-        ),
-        dtype=np.int8
-    )
-
     for row in merged.itertuples():
 
         t = timestamp_to_index[row.timestamp]
         s = station_to_index[row.station_id]
 
         for f, feature in enumerate(FEATURE_COLUMNS):
+
             data_tensor[t, s, f] = getattr(
                 row,
                 feature
             )
 
-    for row in mask.itertuples():
+    mask_values = mask[
+        FEATURE_COLUMNS
+    ].to_numpy(
+        dtype=np.int8
+    )
 
-        t = timestamp_to_index[row.timestamp]
-        s = station_to_index[row.station_id]
-
-        for f, feature in enumerate(FEATURE_COLUMNS):
-
-            mask_tensor[t, s, f] = getattr(
-                row,
-                feature
-            )
+    mask_tensor = mask_values.reshape(
+        num_timestamps,
+        num_stations,
+        num_features
+    )
 
     print("Data tensor shape:", data_tensor.shape)
     print("Mask tensor shape:", mask_tensor.shape)
@@ -446,16 +435,6 @@ def evaluate_model(
         -1
     )
 
-    Y_test_flat = Y_test.reshape(
-        Y_test.shape[0],
-        -1
-    )
-
-    target_mask_flat = target_mask.reshape(
-        target_mask.shape[0],
-        -1
-    )
-
     X_tensor = torch.tensor(
         X_test_flat,
         dtype=torch.float32,
@@ -500,7 +479,8 @@ def evaluate_model(
     ):
 
         valid = masks[
-            :, feature_index
+            :,
+            feature_index
         ]
 
         if valid.sum() == 0:
@@ -559,9 +539,11 @@ def evaluate_model(
     )
 
     print()
-    print(results_df.to_string(
-        index=False
-    ))
+    print(
+        results_df.to_string(
+            index=False
+        )
+    )
 
     print()
     print("Results saved to:")
