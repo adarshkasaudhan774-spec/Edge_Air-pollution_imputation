@@ -194,11 +194,14 @@ print(
     "Invalid mask values:",
     invalid_mask_values
 )
-# STEP 6.7 — Sort Dataset in Correct Time Order
+# STEP 6.7 — Sort Dataset and Keep Mask Exactly Aligned
 
 sort_order = (
     merged_df
-    .sort_values(["timestamp", "station_id"])
+    .sort_values(
+        ["timestamp", "station_id"],
+        kind="mergesort"
+    )
     .index
 )
 
@@ -214,12 +217,18 @@ fixed_mask = (
     .reset_index(drop=True)
 )
 
-
 print("\nSTEP 6.7 — Dataset Ordering")
 print("-" * 50)
 
-print("First timestamp:", merged_df["timestamp"].iloc[0])
-print("Last timestamp:", merged_df["timestamp"].iloc[-1])
+print(
+    "First timestamp:",
+    merged_df["timestamp"].iloc[0]
+)
+
+print(
+    "Last timestamp:",
+    merged_df["timestamp"].iloc[-1]
+)
 
 print(
     "Unique timestamps:",
@@ -240,65 +249,145 @@ print(
     "Mask rows after sorting:",
     len(fixed_mask)
 )
+
+print(
+    "Data and mask row counts match:",
+    len(merged_df) == len(fixed_mask)
+)
+
+
 # STEP 6.8 — Prepare Data and Mask Tensors
 
-# Convert feature values to numeric NumPy array
 data_array = (
-    merged_df[feature_columns]
-    .to_numpy(dtype=np.float32)
+    merged_df[
+        feature_columns
+    ]
+    .to_numpy(
+        dtype=np.float32
+    )
 )
 
 mask_array = (
-    fixed_mask[feature_columns]
-    .to_numpy(dtype=np.int8)
+    fixed_mask[
+        feature_columns
+    ]
+    .to_numpy(
+        dtype=np.int8
+    )
 )
 
-
-# Reshape:
-# (timestamps × stations, features)
-#              ↓
-# (timestamps, stations, features)
+original_observation_mask = (
+    merged_df[
+        feature_columns
+    ]
+    .notna()
+    .to_numpy(
+        dtype=np.int8
+    )
+)
 
 data_tensor = data_array.reshape(
     NUM_STATIONS,
     -1,
     NUM_FEATURES
-).transpose(1, 0, 2)
+).transpose(
+    1,
+    0,
+    2
+)
 
 mask_tensor = mask_array.reshape(
     NUM_STATIONS,
     -1,
     NUM_FEATURES
-).transpose(1, 0, 2)
+).transpose(
+    1,
+    0,
+    2
+)
 
+original_observation_mask_tensor = (
+    original_observation_mask
+    .reshape(
+        NUM_STATIONS,
+        -1,
+        NUM_FEATURES
+    )
+    .transpose(
+        1,
+        0,
+        2
+    )
+)
 
 print("\nSTEP 6.8 — Tensor Preparation")
 print("-" * 50)
 
-print("Data tensor shape:", data_tensor.shape)
-print("Mask tensor shape:", mask_tensor.shape)
+print(
+    "Data tensor shape:",
+    data_tensor.shape
+)
 
-print("Data tensor dtype:", data_tensor.dtype)
-print("Mask tensor dtype:", mask_tensor.dtype)
+print(
+    "Mask tensor shape:",
+    mask_tensor.shape
+)
 
-print("Expected shape:",
-      (merged_df["timestamp"].nunique(), NUM_STATIONS, NUM_FEATURES))
+print(
+    "Original observation mask shape:",
+    original_observation_mask_tensor.shape
+)
+
+print(
+    "Data tensor dtype:",
+    data_tensor.dtype
+)
+
+print(
+    "Mask tensor dtype:",
+    mask_tensor.dtype
+)
+
+print(
+    "Expected shape:",
+    (
+        merged_df["timestamp"].nunique(),
+        NUM_STATIONS,
+        NUM_FEATURES
+    )
+)
+
+
 # STEP 6.9 — Create 24-Hour Sliding Windows
 
-num_windows = len(data_tensor) - WINDOW_SIZE + 1
+num_windows = (
+    len(data_tensor)
+    - WINDOW_SIZE
+    + 1
+)
 
 data_windows = np.empty(
-    (num_windows, WINDOW_SIZE, NUM_STATIONS, NUM_FEATURES),
+    (
+        num_windows,
+        WINDOW_SIZE,
+        NUM_STATIONS,
+        NUM_FEATURES
+    ),
     dtype=np.float32
 )
 
 mask_windows = np.empty(
-    (num_windows, WINDOW_SIZE, NUM_STATIONS, NUM_FEATURES),
+    (
+        num_windows,
+        WINDOW_SIZE,
+        NUM_STATIONS,
+        NUM_FEATURES
+    ),
     dtype=np.int8
 )
 
-
 for i in range(num_windows):
+
     data_windows[i] = data_tensor[
         i:i + WINDOW_SIZE
     ]
@@ -307,31 +396,60 @@ for i in range(num_windows):
         i:i + WINDOW_SIZE
     ]
 
-
 print("\nSTEP 6.9 — Sliding-Window Dataset")
 print("-" * 50)
 
-print("Data windows shape:", data_windows.shape)
-print("Mask windows shape:", mask_windows.shape)
+print(
+    "Data windows shape:",
+    data_windows.shape
+)
 
-print("Number of windows:", num_windows)
-print("Window size:", WINDOW_SIZE)
+print(
+    "Mask windows shape:",
+    mask_windows.shape
+)
+
+print(
+    "Number of windows:",
+    num_windows
+)
+
+print(
+    "Window size:",
+    WINDOW_SIZE
+)
+
+
 # STEP 6.10 — Prepare LSTM Targets
 
-# Use the final hour of each 24-hour window as the target
-target_data = data_windows[:, -1, :, :]
-target_mask = mask_windows[:, -1, :, :]
+target_data = (
+    data_windows[:, -1, :, :]
+)
 
+target_mask = (
+    mask_windows[:, -1, :, :]
+)
 
 print("\nSTEP 6.10 — LSTM Target Preparation")
 print("-" * 50)
 
-print("Target data shape:", target_data.shape)
-print("Target mask shape:", target_mask.shape)
+print(
+    "Target data shape:",
+    target_data.shape
+)
+
+print(
+    "Target mask shape:",
+    target_mask.shape
+)
 
 print(
     "Expected target shape:",
-    (num_windows, NUM_STATIONS, NUM_FEATURES)
+    (
+        num_windows,
+        NUM_STATIONS,
+        NUM_FEATURES
+    )
 )
 
 print(
@@ -342,39 +460,40 @@ print(
         NUM_FEATURES
     )
 )
+
+
 # STEP 6.11 — Artificially Masked Target Verification
 
-# A target is valid for evaluation when:
-# 1. Its original value was available.
-# 2. It was artificially masked by our fixed mask.
-
-original_observation_mask = (
-    merged_df[feature_columns]
-    .notna()
-    .to_numpy(dtype=np.int8)
-)
-
 artificial_target_mask = (
-    (original_observation_mask == 1) &
+    (original_observation_mask == 1)
+    &
     (mask_array == 0)
 )
 
-
-# Convert to timestamp-window format
 artificial_target_mask_tensor = (
     artificial_target_mask
-    .reshape(NUM_STATIONS, -1, NUM_FEATURES)
-    .transpose(1, 0, 2)
+    .reshape(
+        NUM_STATIONS,
+        -1,
+        NUM_FEATURES
+    )
+    .transpose(
+        1,
+        0,
+        2
+    )
 )
 
+artificial_target_windows = (
+    artificial_target_mask_tensor[
+        WINDOW_SIZE - 1:
+    ]
+)
 
-# Select the target position from every 24-hour window
-artificial_target_windows = artificial_target_mask_tensor[
-    WINDOW_SIZE - 1:
-]
+print(
+    "\nSTEP 6.11 — Artificial Target Verification"
+)
 
-
-print("\nSTEP 6.11 — Artificial Target Verification")
 print("-" * 50)
 
 print(
@@ -384,12 +503,16 @@ print(
 
 print(
     "Artificially masked target points:",
-    artificial_target_windows.sum()
+    int(
+        artificial_target_windows.sum()
+    )
 )
 
 print(
     "Target windows:",
-    len(artificial_target_windows)
+    len(
+        artificial_target_windows
+    )
 )
 
 print(
@@ -399,69 +522,146 @@ print(
 
 print(
     "Shape matches:",
-    artificial_target_windows.shape == target_mask.shape
+    artificial_target_windows.shape
+    == target_mask.shape
 )
+
+
 # STEP 6.12 — Chronological Train / Validation / Test Split
 
-total_windows = len(data_windows)
+total_windows = len(
+    data_windows
+)
 
-train_end = int(total_windows * 0.70)
-val_end = int(total_windows * 0.85)
+train_end = int(
+    total_windows * 0.70
+)
 
+val_end = int(
+    total_windows * 0.85
+)
 
-# Training
-X_train = data_windows[:train_end]
-M_train = mask_windows[:train_end]
-Y_train = target_data[:train_end]
-T_train = artificial_target_windows[:train_end]
+X_train = data_windows[
+    :train_end
+]
 
+M_train = mask_windows[
+    :train_end
+]
 
-# Validation
-X_val = data_windows[train_end:val_end]
-M_val = mask_windows[train_end:val_end]
-Y_val = target_data[train_end:val_end]
-T_val = artificial_target_windows[train_end:val_end]
+Y_train = target_data[
+    :train_end
+]
 
+T_train = artificial_target_windows[
+    :train_end
+]
 
-# Test
-X_test = data_windows[val_end:]
-M_test = mask_windows[val_end:]
-Y_test = target_data[val_end:]
-T_test = artificial_target_windows[val_end:]
+X_val = data_windows[
+    train_end:val_end
+]
 
+M_val = mask_windows[
+    train_end:val_end
+]
+
+Y_val = target_data[
+    train_end:val_end
+]
+
+T_val = artificial_target_windows[
+    train_end:val_end
+]
+
+X_test = data_windows[
+    val_end:
+]
+
+M_test = mask_windows[
+    val_end:
+]
+
+Y_test = target_data[
+    val_end:
+]
+
+T_test = artificial_target_windows[
+    val_end:
+]
 
 print("\nSTEP 6.12 — Dataset Split")
 print("-" * 50)
 
-print("Total windows:", total_windows)
+print(
+    "Total windows:",
+    total_windows
+)
 
 print("\nTraining:")
-print("X_train:", X_train.shape)
-print("Y_train:", Y_train.shape)
+print(
+    "X_train:",
+    X_train.shape
+)
+print(
+    "Y_train:",
+    Y_train.shape
+)
 
 print("\nValidation:")
-print("X_val:", X_val.shape)
-print("Y_val:", Y_val.shape)
+print(
+    "X_val:",
+    X_val.shape
+)
+print(
+    "Y_val:",
+    Y_val.shape
+)
 
 print("\nTest:")
-print("X_test:", X_test.shape)
-print("Y_test:", Y_test.shape)
+print(
+    "X_test:",
+    X_test.shape
+)
+print(
+    "Y_test:",
+    Y_test.shape
+)
 
 print("\nArtificial target points:")
-print("Train:", T_train.sum())
-print("Validation:", T_val.sum())
-print("Test:", T_test.sum())
+
+print(
+    "Train:",
+    int(T_train.sum())
+)
+
+print(
+    "Validation:",
+    int(T_val.sum())
+)
+
+print(
+    "Test:",
+    int(T_test.sum())
+)
+
+print(
+    "Total:",
+    int(
+        T_train.sum()
+        + T_val.sum()
+        + T_test.sum()
+    )
+)
 # STEP 6.13 — Calculate Training-Only Feature Statistics
 
-# Flatten training input:
-# (samples, 24, 16, 13)
-#        ↓
-# (all training observations, 13)
+train_values_flat = (
+    X_train
+    .reshape(
+        -1,
+        NUM_FEATURES
+    )
+)
 
-train_values_flat = X_train.reshape(-1, NUM_FEATURES)
-
-
-# Calculate mean using only available values
 feature_means = np.nanmean(
     train_values_flat,
     axis=0
@@ -472,138 +672,249 @@ feature_stds = np.nanstd(
     axis=0
 )
 
+feature_stds[
+    feature_stds == 0
+] = 1.0
 
-# Prevent division by zero later
-feature_stds[feature_stds == 0] = 1.0
+print(
+    "\nSTEP 6.13 — Training Statistics"
+)
 
-
-print("\nSTEP 6.13 — Training Statistics")
 print("-" * 50)
 
 print("Feature means:")
-for feature, mean in zip(feature_columns, feature_means):
-    print(f"{feature:20s}: {mean:.6f}")
 
-print("\nFeature standard deviations:")
-for feature, std in zip(feature_columns, feature_stds):
-    print(f"{feature:20s}: {std:.6f}")
+for feature, mean in zip(
+    feature_columns,
+    feature_means
+):
 
-print("\nNaN in feature means:", np.isnan(feature_means).sum())
-print("NaN in feature stds:", np.isnan(feature_stds).sum())
+    print(
+        f"{feature:20s}: {mean:.6f}"
+    )
+
+print(
+    "\nFeature standard deviations:"
+)
+
+for feature, std in zip(
+    feature_columns,
+    feature_stds
+):
+
+    print(
+        f"{feature:20s}: {std:.6f}"
+    )
+
+print(
+    "\nNaN in feature means:",
+    np.isnan(feature_means).sum()
+)
+
+print(
+    "NaN in feature stds:",
+    np.isnan(feature_stds).sum()
+)
+
+
 # STEP 6.14 — Fill Missing Input Values Using Training Means
 
-def fill_missing_with_training_mean(data, means):
-    """
-    Fill NaN values feature-wise using training-set means.
-    """
+def fill_missing_with_training_mean(
+    data,
+    means
+):
+
     data = data.copy()
 
-    for feature_idx in range(NUM_FEATURES):
-        missing_positions = np.isnan(data[:, :, :, feature_idx])
+    for feature_idx in range(
+        NUM_FEATURES
+    ):
 
-        data[:, :, :, feature_idx][missing_positions] = means[feature_idx]
+        missing_positions = np.isnan(
+            data[
+                :,
+                :,
+                :,
+                feature_idx
+            ]
+        )
+
+        data[
+            :,
+            :,
+            :,
+            feature_idx
+        ][
+            missing_positions
+        ] = means[
+            feature_idx
+        ]
 
     return data
 
 
-X_train_filled = fill_missing_with_training_mean(
-    X_train,
-    feature_means
+X_train_filled = (
+    fill_missing_with_training_mean(
+        X_train,
+        feature_means
+    )
 )
 
-X_val_filled = fill_missing_with_training_mean(
-    X_val,
-    feature_means
+X_val_filled = (
+    fill_missing_with_training_mean(
+        X_val,
+        feature_means
+    )
 )
 
-X_test_filled = fill_missing_with_training_mean(
-    X_test,
-    feature_means
+X_test_filled = (
+    fill_missing_with_training_mean(
+        X_test,
+        feature_means
+    )
 )
 
+print(
+    "\nSTEP 6.14 — Missing Value Handling"
+)
 
-print("\nSTEP 6.14 — Missing Value Handling")
 print("-" * 50)
 
-print("NaN in X_train:", np.isnan(X_train_filled).sum())
-print("NaN in X_val:", np.isnan(X_val_filled).sum())
-print("NaN in X_test:", np.isnan(X_test_filled).sum())
+print(
+    "NaN in X_train:",
+    np.isnan(X_train_filled).sum()
+)
 
-print("\nShapes:")
-print("X_train:", X_train_filled.shape)
-print("X_val:", X_val_filled.shape)
-print("X_test:", X_test_filled.shape)
+print(
+    "NaN in X_val:",
+    np.isnan(X_val_filled).sum()
+)
+
+print(
+    "NaN in X_test:",
+    np.isnan(X_test_filled).sum()
+)
+
+
 # STEP 6.15 — Feature-wise Normalization
 
-def normalize_data(data, means, stds):
-    """
-    Normalize each feature using training-set mean and standard deviation.
-    """
+def normalize_data(
+    data,
+    means,
+    stds
+):
+
     data = data.copy()
 
-    for feature_idx in range(NUM_FEATURES):
-        data[:, :, :, feature_idx] = (
-            data[:, :, :, feature_idx] - means[feature_idx]
-        ) / stds[feature_idx]
+    for feature_idx in range(
+        NUM_FEATURES
+    ):
+
+        data[
+            :,
+            :,
+            :,
+            feature_idx
+        ] = (
+            data[
+                :,
+                :,
+                :,
+                feature_idx
+            ]
+            - means[
+                feature_idx
+            ]
+        ) / stds[
+            feature_idx
+        ]
 
     return data
 
 
-X_train_normalized = normalize_data(
-    X_train_filled,
-    feature_means,
-    feature_stds
+X_train_normalized = (
+    normalize_data(
+        X_train_filled,
+        feature_means,
+        feature_stds
+    )
 )
 
-X_val_normalized = normalize_data(
-    X_val_filled,
-    feature_means,
-    feature_stds
+X_val_normalized = (
+    normalize_data(
+        X_val_filled,
+        feature_means,
+        feature_stds
+    )
 )
 
-X_test_normalized = normalize_data(
-    X_test_filled,
-    feature_means,
-    feature_stds
+X_test_normalized = (
+    normalize_data(
+        X_test_filled,
+        feature_means,
+        feature_stds
+    )
 )
 
+print(
+    "\nSTEP 6.15 — Feature Normalization"
+)
 
-print("\nSTEP 6.15 — Feature Normalization")
 print("-" * 50)
 
-print("NaN in normalized train:",
-      np.isnan(X_train_normalized).sum())
+print(
+    "NaN in normalized train:",
+    np.isnan(
+        X_train_normalized
+    ).sum()
+)
 
-print("NaN in normalized validation:",
-      np.isnan(X_val_normalized).sum())
+print(
+    "NaN in normalized validation:",
+    np.isnan(
+        X_val_normalized
+    ).sum()
+)
 
-print("NaN in normalized test:",
-      np.isnan(X_test_normalized).sum())
+print(
+    "NaN in normalized test:",
+    np.isnan(
+        X_test_normalized
+    ).sum()
+)
 
-print("\nNormalized train shape:",
-      X_train_normalized.shape)
 
-print("Normalized validation shape:",
-      X_val_normalized.shape)
-
-print("Normalized test shape:",
-      X_test_normalized.shape)
 # STEP 6.16 — Target Normalization with Safe NaN Handling
 
-def normalize_target(target, means, stds):
-    """
-    Normalize target features using training-set statistics.
-    Original missing values are temporarily replaced with 0
-    after normalization because loss will only use artificial targets.
-    """
+def normalize_target(
+    target,
+    means,
+    stds
+):
+
     target = target.copy()
 
-    for feature_idx in range(NUM_FEATURES):
-        target[:, :, feature_idx] = (
-            target[:, :, feature_idx] - means[feature_idx]
-        ) / stds[feature_idx]
+    for feature_idx in range(
+        NUM_FEATURES
+    ):
 
-    # Prevent original missing values from propagating NaN into training loss
+        target[
+            :,
+            :,
+            feature_idx
+        ] = (
+            target[
+                :,
+                :,
+                feature_idx
+            ]
+            - means[
+                feature_idx
+            ]
+        ) / stds[
+            feature_idx
+        ]
+
     target = np.nan_to_num(
         target,
         nan=0.0,
@@ -614,39 +925,71 @@ def normalize_target(target, means, stds):
     return target
 
 
-Y_train_normalized = normalize_target(
-    Y_train,
-    feature_means,
-    feature_stds
+Y_train_normalized = (
+    normalize_target(
+        Y_train,
+        feature_means,
+        feature_stds
+    )
 )
 
-Y_val_normalized = normalize_target(
-    Y_val,
-    feature_means,
-    feature_stds
+Y_val_normalized = (
+    normalize_target(
+        Y_val,
+        feature_means,
+        feature_stds
+    )
 )
 
-Y_test_normalized = normalize_target(
-    Y_test,
-    feature_means,
-    feature_stds
+Y_test_normalized = (
+    normalize_target(
+        Y_test,
+        feature_means,
+        feature_stds
+    )
 )
 
-print("\nSTEP 6.16 — Target Normalization")
+print(
+    "\nSTEP 6.16 — Target Normalization"
+)
+
 print("-" * 50)
 
-print("Y_train shape:", Y_train_normalized.shape)
-print("Y_val shape:", Y_val_normalized.shape)
-print("Y_test shape:", Y_test_normalized.shape)
+print(
+    "Y_train shape:",
+    Y_train_normalized.shape
+)
 
-print("\nNaN in Y_train:",
-      np.isnan(Y_train_normalized).sum())
+print(
+    "Y_val shape:",
+    Y_val_normalized.shape
+)
 
-print("NaN in Y_val:",
-      np.isnan(Y_val_normalized).sum())
+print(
+    "Y_test shape:",
+    Y_test_normalized.shape
+)
 
-print("NaN in Y_test:",
-      np.isnan(Y_test_normalized).sum())
+print(
+    "\nNaN in Y_train:",
+    np.isnan(
+        Y_train_normalized
+    ).sum()
+)
+
+print(
+    "NaN in Y_val:",
+    np.isnan(
+        Y_val_normalized
+    ).sum()
+)
+
+print(
+    "NaN in Y_test:",
+    np.isnan(
+        Y_test_normalized
+    ).sum()
+)
 # STEP 6.17 — Convert Data to LSTM Input Format
 
 X_train_lstm = X_train_normalized.reshape(
