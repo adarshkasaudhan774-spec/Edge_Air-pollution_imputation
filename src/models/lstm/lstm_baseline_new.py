@@ -10,7 +10,9 @@ import torch.nn as nn
 # STEP 7.1 — Imports & Project Paths
 # ============================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+print("Project root:", PROJECT_ROOT)
 
 RAW_DATA = PROJECT_ROOT / "Data" / "raw data"
 PROCESSED_DATA = PROJECT_ROOT / "Data" / "processed"
@@ -29,7 +31,6 @@ NUM_FEATURES = 13
 INPUT_SIZE = NUM_STATIONS * NUM_FEATURES
 
 WINDOW_SIZE = 24
-
 BATCH_SIZE = 32
 
 DEVICE = torch.device(
@@ -282,6 +283,13 @@ print("-" * 60)
 
 print("Data array shape:", data_array.shape)
 print("Mask array shape:", mask_array.shape)
+
+if data_array.shape != mask_array.shape:
+    raise ValueError(
+        f"Data/mask shape mismatch: "
+        f"{data_array.shape} vs {mask_array.shape}"
+    )
+
 print(
     "Original observation mask shape:",
     original_observation_mask.shape
@@ -290,7 +298,18 @@ print(
 
 # ============================================================
 # STEP 7.8 — Create Data and Mask Tensors
+# Match Existing Step 6 Checkpoint Preprocessing
 # ============================================================
+
+# IMPORTANT:
+# The existing LSTM checkpoint was trained using this station-first
+# reshape + transpose in Step 6.8.
+#
+# Keep preprocessing identical during evaluation.
+# Changing only the evaluation ordering would mismatch the checkpoint.
+#
+# A fully corrected timestamp-major pipeline would require updating
+# Step 6 training preprocessing and retraining the model.
 
 data_tensor = (
     data_array
@@ -327,9 +346,17 @@ print("-" * 60)
 
 print("Data tensor shape:", data_tensor.shape)
 print("Mask tensor shape:", mask_tensor.shape)
+
 print(
     "Original observation mask shape:",
     original_observation_mask_tensor.shape
+)
+
+print(
+    "All tensor shapes match:",
+    data_tensor.shape
+    == mask_tensor.shape
+    == original_observation_mask_tensor.shape
 )
 
 
@@ -385,13 +412,8 @@ print("Number of windows:", num_windows)
 # STEP 7.10 — Prepare Targets
 # ============================================================
 
-target_data = (
-    data_windows[:, -1, :, :]
-)
-
-target_mask = (
-    mask_windows[:, -1, :, :]
-)
+target_data = data_windows[:, -1, :, :]
+target_mask = mask_windows[:, -1, :, :]
 
 print("\nSTEP 7.10 — Target Preparation")
 print("-" * 60)
@@ -409,6 +431,8 @@ artificial_target_mask = (
     &
     (mask_array == 0)
 )
+
+# Keep artificial-target mask ordering identical to Step 6 training.
 
 artificial_target_mask_tensor = (
     artificial_target_mask
@@ -449,92 +473,43 @@ if total_artificial_targets != 1036619:
         f"Expected 1036619, got {total_artificial_targets}."
     )
 
-print(
-    "Artificial target count matches Step 6: True"
-)
-
-
+print("Artificial target count matches Step 6: True")
 # ============================================================
 # STEP 7.12 — Chronological Train / Validation / Test Split
 # ============================================================
 
 total_windows = len(data_windows)
 
-train_end = int(
-    total_windows * 0.70
-)
+train_end = int(total_windows * 0.70)
+val_end = int(total_windows * 0.85)
 
-val_end = int(
-    total_windows * 0.85
-)
+X_train = data_windows[:train_end]
+Y_train = target_data[:train_end]
+T_train = artificial_target_windows[:train_end]
 
-X_train = data_windows[
-    :train_end
-]
+X_val = data_windows[train_end:val_end]
+Y_val = target_data[train_end:val_end]
+T_val = artificial_target_windows[train_end:val_end]
 
-Y_train = target_data[
-    :train_end
-]
-
-T_train = artificial_target_windows[
-    :train_end
-]
-
-X_val = data_windows[
-    train_end:val_end
-]
-
-Y_val = target_data[
-    train_end:val_end
-]
-
-T_val = artificial_target_windows[
-    train_end:val_end
-]
-
-X_test = data_windows[
-    val_end:
-]
-
-Y_test = target_data[
-    val_end:
-]
-
-T_test = artificial_target_windows[
-    val_end:
-]
+X_test = data_windows[val_end:]
+Y_test = target_data[val_end:]
+T_test = artificial_target_windows[val_end:]
 
 print("\nSTEP 7.12 — Dataset Split")
 print("-" * 60)
 
 print("Total windows:", total_windows)
-
 print("Training windows:", len(X_train))
 print("Validation windows:", len(X_val))
 print("Test windows:", len(X_test))
 
-print(
-    "Training artificial targets:",
-    int(T_train.sum())
-)
-
-print(
-    "Validation artificial targets:",
-    int(T_val.sum())
-)
-
-print(
-    "Test artificial targets:",
-    int(T_test.sum())
-)
+print("Training artificial targets:", int(T_train.sum()))
+print("Validation artificial targets:", int(T_val.sum()))
+print("Test artificial targets:", int(T_test.sum()))
 
 print(
     "Total artificial targets:",
-    int(
-        T_train.sum()
-        + T_val.sum()
-        + T_test.sum()
-    )
+    int(T_train.sum() + T_val.sum() + T_test.sum())
 )
 
 expected_train_targets = 725081
@@ -563,12 +538,9 @@ print("\nStep 6 split verification: PASSED")
 # STEP 7.13 — Calculate Training-Only Statistics
 # ============================================================
 
-train_values_flat = (
-    X_train
-    .reshape(
-        -1,
-        NUM_FEATURES
-    )
+train_values_flat = X_train.reshape(
+    -1,
+    NUM_FEATURES
 )
 
 feature_means = np.nanmean(
@@ -581,9 +553,7 @@ feature_stds = np.nanstd(
     axis=0
 )
 
-feature_stds[
-    feature_stds == 0
-] = 1.0
+feature_stds[feature_stds == 0] = 1.0
 
 print("\nSTEP 7.13 — Training-Only Statistics")
 print("-" * 60)
@@ -605,114 +575,61 @@ for feature, mean, std in zip(
 # STEP 7.14 — Fill Missing Input Values
 # ============================================================
 
-def fill_missing_with_training_mean(
-    data,
-    means
-):
+def fill_missing_with_training_mean(data, means):
 
     data = data.copy()
 
-    for feature_idx in range(
-        NUM_FEATURES
-    ):
+    for feature_idx in range(NUM_FEATURES):
 
         missing_positions = np.isnan(
-            data[
-                :,
-                :,
-                :,
-                feature_idx
-            ]
+            data[:, :, :, feature_idx]
         )
 
-        data[
-            :,
-            :,
-            :,
-            feature_idx
-        ][
-            missing_positions
-        ] = means[
-            feature_idx
-        ]
+        feature_values = data[:, :, :, feature_idx]
+
+        feature_values[missing_positions] = means[feature_idx]
+
+        data[:, :, :, feature_idx] = feature_values
 
     return data
 
 
-X_train_filled = (
-    fill_missing_with_training_mean(
-        X_train,
-        feature_means
-    )
+X_train_filled = fill_missing_with_training_mean(
+    X_train,
+    feature_means
 )
 
-X_val_filled = (
-    fill_missing_with_training_mean(
-        X_val,
-        feature_means
-    )
+X_val_filled = fill_missing_with_training_mean(
+    X_val,
+    feature_means
 )
 
-X_test_filled = (
-    fill_missing_with_training_mean(
-        X_test,
-        feature_means
-    )
+X_test_filled = fill_missing_with_training_mean(
+    X_test,
+    feature_means
 )
 
 print("\nSTEP 7.14 — Missing Value Handling")
 print("-" * 60)
 
-print(
-    "NaN in X_train:",
-    np.isnan(X_train_filled).sum()
-)
-
-print(
-    "NaN in X_val:",
-    np.isnan(X_val_filled).sum()
-)
-
-print(
-    "NaN in X_test:",
-    np.isnan(X_test_filled).sum()
-)
+print("NaN in X_train:", np.isnan(X_train_filled).sum())
+print("NaN in X_val:", np.isnan(X_val_filled).sum())
+print("NaN in X_test:", np.isnan(X_test_filled).sum())
 
 
 # ============================================================
 # STEP 7.15 — Normalize Inputs Using Training Statistics
 # ============================================================
 
-def normalize_data(
-    data,
-    means,
-    stds
-):
+def normalize_data(data, means, stds):
 
     data = data.copy()
 
-    for feature_idx in range(
-        NUM_FEATURES
-    ):
+    for feature_idx in range(NUM_FEATURES):
 
-        data[
-            :,
-            :,
-            :,
-            feature_idx
-        ] = (
-            data[
-                :,
-                :,
-                :,
-                feature_idx
-            ]
-            - means[
-                feature_idx
-            ]
-        ) / stds[
-            feature_idx
-        ]
+        data[:, :, :, feature_idx] = (
+            data[:, :, :, feature_idx] - means[feature_idx]
+        ) / stds[feature_idx]
 
     return data
 
@@ -758,34 +675,15 @@ print(
 # STEP 7.16 — Normalize Targets
 # ============================================================
 
-def normalize_target(
-    target,
-    means,
-    stds
-):
+def normalize_target(target, means, stds):
 
     target = target.copy()
 
-    for feature_idx in range(
-        NUM_FEATURES
-    ):
+    for feature_idx in range(NUM_FEATURES):
 
-        target[
-            :,
-            :,
-            feature_idx
-        ] = (
-            target[
-                :,
-                :,
-                feature_idx
-            ]
-            - means[
-                feature_idx
-            ]
-        ) / stds[
-            feature_idx
-        ]
+        target[:, :, feature_idx] = (
+            target[:, :, feature_idx] - means[feature_idx]
+        ) / stds[feature_idx]
 
     target = np.nan_to_num(
         target,
@@ -806,44 +704,28 @@ Y_test_normalized = normalize_target(
 print("\nSTEP 7.16 — Target Normalization")
 print("-" * 60)
 
-print(
-    "Y_test shape:",
-    Y_test_normalized.shape
-)
-
-print(
-    "NaN in Y_test:",
-    np.isnan(Y_test_normalized).sum()
-)
+print("Y_test shape:", Y_test_normalized.shape)
+print("NaN in Y_test:", np.isnan(Y_test_normalized).sum())
 
 
 # ============================================================
 # STEP 7.17 — Convert Test Data to LSTM Format
 # ============================================================
 
-X_test_lstm = (
-    X_test_normalized
-    .reshape(
-        len(X_test_normalized),
-        WINDOW_SIZE,
-        INPUT_SIZE
-    )
+X_test_lstm = X_test_normalized.reshape(
+    len(X_test_normalized),
+    WINDOW_SIZE,
+    INPUT_SIZE
 )
 
-Y_test_lstm = (
-    Y_test_normalized
-    .reshape(
-        len(Y_test_normalized),
-        INPUT_SIZE
-    )
+Y_test_lstm = Y_test_normalized.reshape(
+    len(Y_test_normalized),
+    INPUT_SIZE
 )
 
-T_test_lstm = (
-    T_test
-    .reshape(
-        len(T_test),
-        INPUT_SIZE
-    )
+T_test_lstm = T_test.reshape(
+    len(T_test),
+    INPUT_SIZE
 )
 
 print("\nSTEP 7.17 — Test LSTM Format")
@@ -852,8 +734,6 @@ print("-" * 60)
 print("X_test:", X_test_lstm.shape)
 print("Y_test:", Y_test_lstm.shape)
 print("T_test:", T_test_lstm.shape)
-
-
 # ============================================================
 # STEP 7.18 — Define LSTM Model
 # ============================================================
@@ -876,9 +756,7 @@ class LSTMBaseline(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            dropout=dropout
-            if num_layers > 1
-            else 0.0
+            dropout=dropout if num_layers > 1 else 0.0
         )
 
         self.fc = nn.Linear(
@@ -890,13 +768,9 @@ class LSTMBaseline(nn.Module):
 
         lstm_output, _ = self.lstm(x)
 
-        last_output = (
-            lstm_output[:, -1, :]
-        )
+        last_output = lstm_output[:, -1, :]
 
-        output = self.fc(
-            last_output
-        )
+        output = self.fc(last_output)
 
         return output
 
@@ -963,20 +837,14 @@ with torch.no_grad():
         )
 
         batch_X = (
-            X_test_tensor[
-                start:end
-            ]
+            X_test_tensor[start:end]
             .to(DEVICE)
         )
 
-        batch_prediction = model(
-            batch_X
-        )
+        batch_prediction = model(batch_X)
 
         predictions_normalized.append(
-            batch_prediction
-            .cpu()
-            .numpy()
+            batch_prediction.cpu().numpy()
         )
 
 predictions_normalized = np.concatenate(
@@ -999,28 +867,52 @@ print(
 # STEP 7.21 — Inverse Transform Predictions and Targets
 # ============================================================
 
+# Each output row has 16 stations × 13 features = 208 values.
+# Expand the 13 feature statistics to match all 208 outputs.
+
+feature_means_expanded = np.tile(
+    feature_means,
+    NUM_STATIONS
+).astype(np.float32)
+
+feature_stds_expanded = np.tile(
+    feature_stds,
+    NUM_STATIONS
+).astype(np.float32)
+
+if predictions_normalized.shape[1] != len(feature_means_expanded):
+    raise ValueError(
+        "Prediction width and expanded normalization statistics "
+        "do not match: "
+        f"{predictions_normalized.shape[1]} vs "
+        f"{len(feature_means_expanded)}"
+    )
+
+if Y_test_lstm.shape[1] != len(feature_stds_expanded):
+    raise ValueError(
+        "Target width and expanded normalization statistics "
+        "do not match: "
+        f"{Y_test_lstm.shape[1]} vs "
+        f"{len(feature_stds_expanded)}"
+    )
+
 predictions_original = (
-    predictions_normalized
-    * feature_stds
-) + feature_means
+    predictions_normalized * feature_stds_expanded
+) + feature_means_expanded
 
 targets_original = (
-    Y_test_lstm
-    * feature_stds
-) + feature_means
+    Y_test_lstm * feature_stds_expanded
+) + feature_means_expanded
 
 print("\nSTEP 7.21 — Inverse Normalization")
 print("-" * 60)
 
-print(
-    "Prediction shape:",
-    predictions_original.shape
-)
-
-print(
-    "Target shape:",
-    targets_original.shape
-)
+print("Feature means shape:", feature_means.shape)
+print("Feature stds shape:", feature_stds.shape)
+print("Expanded means shape:", feature_means_expanded.shape)
+print("Expanded stds shape:", feature_stds_expanded.shape)
+print("Prediction shape:", predictions_original.shape)
+print("Target shape:", targets_original.shape)
 
 
 # ============================================================
@@ -1029,46 +921,25 @@ print(
 
 results = []
 
-for feature_idx, feature in enumerate(
-    feature_columns
-):
+for feature_idx, feature in enumerate(feature_columns):
 
-    feature_predictions = (
-        predictions_original[
-            :,
-            feature_idx
-            ::NUM_FEATURES
-        ]
-    )
+    feature_predictions = predictions_original[
+        :,
+        feature_idx::NUM_FEATURES
+    ]
 
-    feature_targets = (
-        targets_original[
-            :,
-            feature_idx
-            ::NUM_FEATURES
-        ]
-    )
+    feature_targets = targets_original[
+        :,
+        feature_idx::NUM_FEATURES
+    ]
 
-    feature_mask = (
-        T_test_lstm[
-            :,
-            feature_idx
-            ::NUM_FEATURES
-        ]
-        .astype(bool)
-    )
+    feature_mask = T_test_lstm[
+        :,
+        feature_idx::NUM_FEATURES
+    ].astype(bool)
 
-    valid_predictions = (
-        feature_predictions[
-            feature_mask
-        ]
-    )
-
-    valid_targets = (
-        feature_targets[
-            feature_mask
-        ]
-    )
+    valid_predictions = feature_predictions[feature_mask]
+    valid_targets = feature_targets[feature_mask]
 
     if len(valid_targets) == 0:
 
@@ -1078,24 +949,15 @@ for feature_idx, feature in enumerate(
 
     else:
 
-        errors = (
-            valid_predictions
-            - valid_targets
-        )
+        errors = valid_predictions - valid_targets
 
-        mae = np.mean(
-            np.abs(errors)
-        )
+        mae = np.mean(np.abs(errors))
 
         rmse = np.sqrt(
-            np.mean(
-                errors ** 2
-            )
+            np.mean(errors ** 2)
         )
 
-        evaluation_points = (
-            len(valid_targets)
-        )
+        evaluation_points = len(valid_targets)
 
     results.append(
         {
@@ -1107,9 +969,7 @@ for feature_idx, feature in enumerate(
     )
 
 
-results_df = pd.DataFrame(
-    results
-)
+results_df = pd.DataFrame(results)
 
 
 # ============================================================
@@ -1120,17 +980,13 @@ print("\nSTEP 7.23 — Final LSTM Evaluation")
 print("=" * 80)
 
 print(
-    results_df.to_string(
-        index=False
-    )
+    results_df.to_string(index=False)
 )
 
 print("\nTotal evaluation points:")
 
 print(
-    results_df[
-        "Evaluation_Points"
-    ].sum()
+    results_df["Evaluation_Points"].sum()
 )
 
 print(
@@ -1139,9 +995,7 @@ print(
 )
 
 if (
-    results_df[
-        "Evaluation_Points"
-    ].sum()
+    results_df["Evaluation_Points"].sum()
     != expected_test_targets
 ):
 
@@ -1150,9 +1004,7 @@ if (
         "the expected Step 6 test artificial target count."
     )
 
-print(
-    "\nEvaluation point verification: PASSED"
-)
+print("\nEvaluation point verification: PASSED")
 
 
 # ============================================================
@@ -1172,15 +1024,8 @@ results_df.to_csv(
 print("\nSTEP 7.24 — Save Results")
 print("-" * 60)
 
-print(
-    "Results saved:",
-    RESULT_FILE
-)
-
-print(
-    "Results file exists:",
-    RESULT_FILE.exists()
-)
+print("Results saved:", RESULT_FILE)
+print("Results file exists:", RESULT_FILE.exists())
 
 if RESULT_FILE.exists():
 
@@ -1199,17 +1044,8 @@ print("\nSTEP 7.25 — LSTM Evaluation Completed")
 print("=" * 60)
 
 print("Model loaded:", MODEL_FILE.exists())
-print(
-    "Test windows:",
-    len(X_test)
-)
-print(
-    "Test artificial targets:",
-    int(T_test.sum())
-)
-print(
-    "Results saved:",
-    RESULT_FILE.exists()
-)
+print("Test windows:", len(X_test))
+print("Test artificial targets:", int(T_test.sum()))
+print("Results saved:", RESULT_FILE.exists())
 
 print("\nSTEP 7 completed successfully.")
