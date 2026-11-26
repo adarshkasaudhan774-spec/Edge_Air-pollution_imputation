@@ -1,0 +1,2 @@
+Model,Test Samples,Evaluation Points,MAE,RMSE,Best Checkpoint Epoch,Best Validation Loss
+Teacher Transformer,3923,153623,4.484006404876709,15.78630542755127,28,0.08700148467564454

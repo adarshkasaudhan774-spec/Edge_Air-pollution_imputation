@@ -1,0 +1,37 @@
+========================================
+TEACHER TRANSFORMER TRAINING REPORT
+========================================
+
+Project:
+Edge-Efficient Air Pollution Imputation
+using Distilled SLM and Lightweight Transformers
+
+Model: Teacher Transformer
+Training Device: NVIDIA Tesla T4 GPU
+
+Training Configuration:
+Maximum Epochs: 50
+Epochs Completed: 35
+Batch Size: 32
+Learning Rate: 0.001
+Window Size: 24
+Early Stopping Patience: 7
+
+Model Configuration:
+Input Features: 13
+Stations: 16
+Embedding Dimension (d_model): 128
+Attention Heads: 4
+Transformer Layers: 3
+Feedforward Dimension: 256
+Dropout: 0.1
+
+Training Result:
+Training Status: COMPLETED
+Early Stopping: TRIGGERED
+Best Validation Loss: 0.08700148467564454
+
+Checkpoint:
+Models/teacher_transformer_best.pth
+
+========================================
